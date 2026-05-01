@@ -1113,6 +1113,9 @@
                 style="display:none;background:rgba(79,124,255,.1);color:#7eb3ff;border-color:rgba(79,124,255,.3)">Score:
                 0/5</span>
               <span class="badge" aria-label="Status: AI assistant active" aria-live="off">● AI LIVE</span>
+              <span id="fb-badge" class="badge"
+                style="background:rgba(239,68,68,.1);color:#ef4444;border-color:rgba(239,68,68,.22);display:none">🔥
+                Firebase</span>
               <div class="action-tools">
                 <button class="btn-icon" onclick="copyLastResponse()" aria-label="Copy last AI response"
                   title="Copy">📋</button>
@@ -1186,7 +1189,8 @@
      * Last updated: 2026
      *
      * Key design decisions:
-     * - No fetch() calls: sandbox CSP blocks cross-origin
+     * - fetch() used for Sheets API and NL API
+     * - Firebase SDK for realtime leaderboard
      * - Knowledge base hardcoded for offline reliability
      * - sendPrompt() used for complex question fallback
      * - sessionStorage for progress (not localStorage)
@@ -1224,6 +1228,16 @@
     };
 
     /* END MODULE: Configuration & Constants */
+
+    /**
+     * Triggers Google Analytics event.
+     * Defined early so Firebase init can call it.
+     * @param {string} name - Event name
+     * @param {Object} [params={}] - Event parameters
+     */
+    function trackEvent(name, params = {}) {
+      if (typeof gtag === 'function') gtag('event', name, params);
+    }
 
     /* ════════════════════════════════
        MODULE: Google Services Layer
@@ -1264,6 +1278,14 @@
       firebaseDB = firebase.database();
       console.info('VoteIQ | Firebase: connected');
       trackEvent('firebase_connected');
+      const fbBadge = document.getElementById('fb-badge');
+      if (fbBadge) {
+        fbBadge.style.display = 'inline-block';
+        fbBadge.style.background = 'rgba(6,214,160,.1)';
+        fbBadge.style.color = '#06d6a0';
+        fbBadge.style.borderColor = 'rgba(6,214,160,.22)';
+        fbBadge.textContent = '🔥 Firebase Live';
+      }
     } catch (e) {
       console.warn('VoteIQ | Firebase: offline mode', e.message);
     }
@@ -1390,6 +1412,8 @@
         });
         const data = await res.json();
         const cats = data.categories || [];
+        trackEvent('cloud_nl_api_success', { categories: cats.length });
+        console.info('VoteIQ | NL API: classified', cats.length, 'categories');
         for (const cat of cats) {
           const n = cat.name.toLowerCase();
           if (n.includes('election') || n.includes('government'))
@@ -2032,9 +2056,8 @@
     /**
      * Triggers Google Analytics event for country change.
      */
-    function trackEvent(name, params = {}) {
-      if (typeof gtag === 'function') gtag('event', name, params);
-    }
+    // trackEvent() is defined earlier (before Google Services)
+    // to avoid runtime errors during Firebase init.
 
     if (location.hostname !== 'localhost' && document.querySelector('[src*="G-XXXXXXXXXX"]')) {
       console.warn('VoteIQ: Replace G-XXXXXXXXXX with your real GA4 Measurement ID before deploying.');
@@ -2273,6 +2296,24 @@
       }
 
       // Google Interceptors
+      if (lower.includes('google services status')) {
+        const fbStatus = firebaseDB ? '✅ Connected' : '❌ Offline (demo keys)';
+        const nlStatus = GOOGLE_SERVICES_CONFIG.nlApiKey !== 'YOUR_GCP_API_KEY' ? '✅ Active' : '⚠️ Demo key';
+        const shStatus = GOOGLE_SERVICES_CONFIG.sheetsId !== 'YOUR_SHEET_ID' ? '✅ Active' : '⚠️ Demo key';
+        renderMessage('ai',
+          '<h3>Google Services Status</h3>' +
+          '<div class="step"><div class="sn">GA</div><div class="st"><strong>Google Analytics</strong>' + (typeof gtag === "function" ? "✅ Active" : "❌ Blocked") + '</div></div>' +
+          '<div class="step"><div class="sn">🔥</div><div class="st"><strong>Firebase Realtime DB</strong>' + fbStatus + '</div></div>' +
+          '<div class="step"><div class="sn">🧠</div><div class="st"><strong>Cloud NL API</strong>' + nlStatus + '</div></div>' +
+          '<div class="step"><div class="sn">📊</div><div class="st"><strong>Google Sheets API</strong>' + shStatus + '</div></div>' +
+          '<div class="step"><div class="sn">🌐</div><div class="st"><strong>Google Translate</strong>✅ Lazy-loaded</div></div>' +
+          '<div class="step"><div class="sn">📍</div><div class="st"><strong>Google Maps Embed</strong>✅ Active</div></div>' +
+          '<div class="step"><div class="sn">📅</div><div class="st"><strong>Google Calendar</strong>✅ Active</div></div>'
+        );
+        STATE.busy = false;
+        return;
+      }
+
       if (lower.includes('find polling station')) {
         renderMessage('ai', '<p>To find your nearest polling station, please type in your city:</p><div style="display:flex;gap:5px;margin-top:10px;"><input type="text" id="city-inp" placeholder="City name..." aria-label="City name" style="flex:1;padding:8px;border-radius:4px;border:1px solid #4f7cff;background:rgba(22,32,52,0.9);color:#fff"><button onclick="launchMaps()" style="padding:8px 12px;background:#4f7cff;color:#fff;border-radius:4px;border:none;cursor:pointer">Search</button></div>');
         STATE.busy = false;
@@ -2458,7 +2499,7 @@
           '<h3>Welcome to VoteIQ ⚡</h3>' +
           '<p>Your anti-gravity guide to elections and democracy. Fully loaded with a civic knowledge base — <strong>no connection required.</strong></p>' +
           '<p>Pick a <strong>country</strong> from the sidebar, choose a <strong>topic</strong>, or type any question below. Complex questions get routed to Claude directly.</p>',
-          ['How does voter registration work?', 'What happens on election day?', 'Compare electoral systems worldwide']
+          ['How does voter registration work?', 'What happens on election day?', 'Compare electoral systems worldwide', 'Google Services Status']
         );
       }, 100);
     });
