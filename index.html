@@ -1375,11 +1375,15 @@
         prog.q + ' questions answered'
       ]];
 
+      const sheetsController = new AbortController();
+      const sheetsTimeout = setTimeout(
+        () => sheetsController.abort(), 8000);
       fetch(SHEETS_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: row })
-      })
+        body: JSON.stringify({ values: row }),
+        signal: sheetsController.signal
+      }).finally(() => clearTimeout(sheetsTimeout))
         .then(r => r.json())
         .then(() => {
           trackEvent('sheets_export_success');
@@ -1406,11 +1410,16 @@
       if (text.length < 20) return undefined;
       trackEvent('cloud_nl_api_called', { query_len: text.length });
       try {
+        const nlController = new AbortController();
+        const nlTimeout = setTimeout(
+          () => nlController.abort(), 5000);
         const res = await fetch(NL_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ document: { type: 'PLAIN_TEXT', content: text } })
+          body: JSON.stringify({ document: { type: 'PLAIN_TEXT', content: text } }),
+          signal: nlController.signal
         });
+        clearTimeout(nlTimeout);
         const data = await res.json();
         const cats = data.categories || [];
         trackEvent('cloud_nl_api_success', { categories: cats.length });
@@ -2037,7 +2046,9 @@
       if (cityNode.value.trim().length > 100) {
         cityNode.value = cityNode.value.trim().substring(0, 100);
       }
-      const city = encodeURIComponent(cityNode.value.trim());
+      const safeCity = cityNode.value.trim().replace(/[<>"'`]/g, '');
+      if (!safeCity) return;
+      const city = encodeURIComponent(safeCity);
 
       trackEvent('maps_opened');
       const searchUrl = 'https://www.google.com/maps/search/polling+station+near+' + city;
@@ -2045,7 +2056,7 @@
       const mapHtml = '<p>Here are the polling stations near your city:</p>' +
         '<div style="margin-top:10px;margin-bottom:10px;">' +
         '<!-- TODO: Upgrade to Maps Embed API with API key for production reliability. Current embed URL works but is unofficial. -->' +
-        '<iframe title="Find polling stations near ' + sanitizeHTML(cityNode.value.trim()) + '" width="100%" height="200" style="border:0;border-radius:8px" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=polling+station+' + city + '&output=embed" onerror="this.style.display=\'none\'"></iframe>' +
+        '<iframe title="Find polling stations near ' + sanitizeHTML(safeCity) + '" width="100%" height="200" style="border:0;border-radius:8px" loading="lazy" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin" src="https://maps.google.com/maps?q=polling+station+' + city + '&output=embed" onerror="this.style.display=\'none\'"></iframe>' +
         '</div>' +
         '<a href="' + searchUrl + '" target="_blank" rel="noopener noreferrer" class="g-search-btn" aria-label="Open maps">📍 Open Google Maps</a>';
 
@@ -2646,9 +2657,29 @@
       const sVal = safeStorage('get', 'invalid__val_xyz_00');
       appendResult('safeStorage wrapper handles missing keys safely', sVal === null);
 
+      // Test 12: Firebase config present
+      const fbConfigValid = typeof FIREBASE_CONFIG === 'object' && FIREBASE_CONFIG.projectId && FIREBASE_CONFIG.projectId.length > 0;
+      appendResult('Firebase config object valid', fbConfigValid);
+
+      // Test 13: Google Services config complete
+      const gsConfigValid = typeof GOOGLE_SERVICES_CONFIG === 'object' && 'sheetsId' in GOOGLE_SERVICES_CONFIG && 'nlApiKey' in GOOGLE_SERVICES_CONFIG && 'gaMeasurementId' in GOOGLE_SERVICES_CONFIG;
+      appendResult('Google Services config complete', gsConfigValid);
+
+      // Test 14: cloudClassifyQuery is async function
+      const nlFnValid = cloudClassifyQuery.constructor.name === 'AsyncFunction';
+      appendResult('NL classifier is async function', nlFnValid);
+
+      // Test 15: submitQuizScore exists and is callable
+      const sqFnValid = typeof submitQuizScore === 'function';
+      appendResult('submitQuizScore() is callable', sqFnValid);
+
+      // Test 16: loadLeaderboard exists and is callable
+      const lbFnValid = typeof loadLeaderboard === 'function';
+      appendResult('loadLeaderboard() is callable', lbFnValid);
+
       // Summary
       const passed = DOM.testResults.querySelectorAll('.test-pass').length;
-      const total = 11;
+      const total = 16;
       const allPassed = passed === total;
       DOM.testResults.insertAdjacentHTML('beforeend', '<div style="margin-top:10px;font-weight:700;color:' + (allPassed ? '#06d6a0' : '#ef4444') + '">' + passed + ' / ' + total + ' tests passed</div>');
     }
