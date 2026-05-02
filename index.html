@@ -1189,10 +1189,10 @@
      * Last updated: 2026
      *
      * Key design decisions:
-     * - fetch() used for Sheets API and NL API
-     * - Firebase SDK for realtime leaderboard
+     * - fetch() used for Sheets API and NL API only
+     * - Firebase SDK for realtime leaderboard scores
      * - Knowledge base hardcoded for offline reliability
-     * - sendPrompt() used for complex question fallback
+     * - Google Cloud NL API for smart query routing
      * - sessionStorage for progress (not localStorage)
      * - Google Analytics, Translate, Search integrated
      */
@@ -1349,6 +1349,7 @@
         trackEvent('leaderboard_viewed');
         STATE.busy = false;
       }).catch(err => {
+        console.warn('VoteIQ: Leaderboard fetch failed:', err.message);
         hideTyping();
         renderMessage('ai', '<p>Could not load leaderboard.</p>');
         STATE.busy = false;
@@ -1754,6 +1755,8 @@
 
     /**
      * Updates the sidebar Progress UI based on session data.
+     * @param {Object} [data] - Progress data object.
+     *   If omitted, reads from progressTracker.get()
      */
     function updateProgressUI(data) {
       if (!data) data = progressTracker.get();
@@ -1831,6 +1834,10 @@
       });
     }
 
+    /**
+     * Opens the browser print dialog for the chat history.
+     * @returns {void} Opens browser print dialog
+     */
     function printChat() {
       trackEvent('print_initiated', {
         topics_viewed: progressTracker.get().topics.length || 0
@@ -1860,6 +1867,8 @@
 
     /**
      * QUIZ Logic
+     * @returns {void} Initialises quiz state
+     *   and renders first question
      */
     function startQuiz() {
       if (STATE.busy || !checkRateLimit()) return;
@@ -1888,6 +1897,11 @@
       }, CONFIG.typingDelay);
     }
 
+    /**
+     * Removes quiz question messages from the chat DOM.
+     * @returns {void} Removes all .quiz-msg nodes
+     *   from chat DOM to clean up after quiz ends
+     */
     function collapseQuizMessages() {
       const quizNodes = DOM.chat.querySelectorAll('.quiz-msg');
       quizNodes.forEach(n => n.remove());
@@ -1908,6 +1922,7 @@
         submitQuizScore(STATE.quizScore);
         progressTracker.addScore(STATE.quizScore);
 
+        // let not const — rank assigned conditionally
         let rank = '';
         if (STATE.quizScore === 5) rank = 'Democracy Champion 🏆';
         else if (STATE.quizScore === 4) rank = 'Informed Citizen ⭐';
@@ -2171,7 +2186,7 @@
     function renderMessage(role, html, chips = []) {
       const fragment = document.createDocumentFragment();
       const messageWrap = document.createElement('div');
-      messageWrap.className = 'msg ' + (role === 'ai' ? '' : 'u');
+      messageWrap.className = 'msg ' + (role === 'ai' ? 'a' : 'u');
 
       const avatar = createAvatar(role);
       const bubble = createBubble(role, html);
@@ -2194,7 +2209,13 @@
       }
     }
 
-    /* END MODULE: Security Utilities & Render Engine */
+    /* END MODULE: Security Utilities */
+
+    /* ════════════════════════════════
+       MODULE: Render Engine
+       Core message rendering, typing indicators,
+       and topic display logic
+       ════════════════════════════════ */
 
     /**
      * Renders an animated loading indicator while waiting for the AI response.
@@ -2253,6 +2274,12 @@
       }
     }
 
+    /**
+     * Calculates the next election date for a given country.
+     * @param {string} country - Country name string
+     * @returns {string} UTC datetime string for
+     *   Google Calendar date parameter
+     */
     function getNextElectionDate(country) {
       const year = new Date().getFullYear();
       const dates = {
@@ -2364,6 +2391,8 @@
         }, CONSTANTS.ANIMATION_DELAY);
       }
     }
+
+    /* END MODULE: Render Engine */
 
     /**
      * Mock sendPrompt for fallback handling
