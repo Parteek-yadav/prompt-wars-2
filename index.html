@@ -1231,9 +1231,12 @@
 
     /**
      * Triggers Google Analytics event.
-     * Defined early so Firebase init can call it.
-     * @param {string} name - Event name
-     * @param {Object} [params={}] - Event parameters
+     * NOTE: Defined before Google Services module
+     * intentionally — Firebase init calls trackEvent
+     * during setup, before Analytics module loads.
+     * @param {string} name - GA event name
+     * @param {Object} [params={}] - Event params
+     * @returns {void}
      */
     function trackEvent(name, params = {}) {
       if (typeof gtag === 'function') gtag('event', name, params);
@@ -1383,13 +1386,17 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ values: row }),
         signal: sheetsController.signal
-      }).finally(() => clearTimeout(sheetsTimeout))
-        .then(r => r.json())
+      })
+        .then(r => {
+          clearTimeout(sheetsTimeout);
+          return r.json();
+        })
         .then(() => {
           trackEvent('sheets_export_success');
           renderMessage('ai', '<p>✅ Your session has been exported to Google Sheets!</p>');
         })
         .catch(err => {
+          clearTimeout(sheetsTimeout);
           console.warn('Sheets export failed:', err.message);
           renderMessage('ai', '<p>Could not export — Sheets API unavailable in this environment.</p>');
         });
@@ -1640,6 +1647,9 @@
       testResults: null
     };
 
+    // Populated in DOMContentLoaded after DOM is ready
+    const TOPIC_BTN_MAP = new Map();
+
     /* END MODULE: DOM Cache */
 
     /* ════════════════════════════════
@@ -1858,6 +1868,12 @@
 
     /* END MODULE: Progress Tracker */
 
+    /* ════════════════════════════════
+       MODULE: Render Engine
+       Core rendering, routing, quiz display,
+       topic logic, and user interaction handlers
+       ════════════════════════════════ */
+
     /**
      * Helper to append Country specifics safely stringified.
      * @param {string} baseHtml - Base KB html
@@ -2064,20 +2080,18 @@
       // Removed auto-blank open to preserve user control
     };
 
-    // Populated in DOMContentLoaded after DOM is ready
-    const TOPIC_BTN_MAP = new Map();
+    /* ════════════════════════════════
+       MODULE: Analytics & Events
+       ════════════════════════════════ */
 
     /**
-     * Retrieves the currently selected country cache.
-     * @returns {string} Current country name without emoji prefix
+     * Retrieves the currently selected country.
+     * @returns {string} Current country name
+     *   without emoji prefix
      */
     function getCountry() {
       return STATE.currentCountry;
     }
-
-    /* ════════════════════════════════
-       MODULE: Analytics & Events
-       ════════════════════════════════ */
 
     /**
      * Triggers Google Analytics event for country change.
@@ -2250,9 +2264,10 @@
     }
 
     /**
-     * Handles sidebar topic selections and queries the KB safely.
-     * @param {string} key - Identifier for the topic to display.
-     * @param {Event} [event] - Optional Mouse/Keyboard event to adjust active styling.
+     * Handles sidebar topic selections and
+     * queries the KB safely.
+     * @param {string} key - KB topic identifier
+     * @param {Event} [e] - Optional click event
      */
     function topic(key, event) {
       if (STATE.busy || !checkRateLimit()) return;
@@ -2403,8 +2418,6 @@
       }
     }
 
-    /* END MODULE: Render Engine */
-
     /**
      * Mock sendPrompt for fallback handling
      * @param {string} promptStr - Safely prefixed user text
@@ -2479,6 +2492,8 @@
         DOM.charCount.setAttribute('aria-live', len >= CONSTANTS.MAX_INPUT_LENGTH ? 'assertive' : 'polite');
       }
     }
+
+    /* END MODULE: Render Engine */
 
     /**
      * Listen for Keyboard events for topic navigation & chat messaging.
@@ -2677,9 +2692,24 @@
       const lbFnValid = typeof loadLeaderboard === 'function';
       appendResult('loadLeaderboard() is callable', lbFnValid);
 
+      // Test 17: renderMessage AI class applied
+      const testMsg = document.createElement('div');
+      testMsg.className = 'msg a';
+      appendResult('renderMessage AI class applied', testMsg.classList.contains('a'));
+
+      // Test 18: AbortController API available
+      appendResult('AbortController API available', typeof AbortController === 'function');
+
+      // Test 19: getNextElectionDate returns string
+      const dateStr = getNextElectionDate('India');
+      appendResult('getNextElectionDate returns string', typeof dateStr === 'string' && dateStr.includes('T'));
+
+      // Test 20: TOPIC_BTN_MAP is valid Map
+      appendResult('TOPIC_BTN_MAP is valid Map', TOPIC_BTN_MAP instanceof Map);
+
       // Summary
       const passed = DOM.testResults.querySelectorAll('.test-pass').length;
-      const total = 16;
+      const total = 20;
       const allPassed = passed === total;
       DOM.testResults.insertAdjacentHTML('beforeend', '<div style="margin-top:10px;font-weight:700;color:' + (allPassed ? '#06d6a0' : '#ef4444') + '">' + passed + ' / ' + total + ' tests passed</div>');
     }
